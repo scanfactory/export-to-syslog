@@ -17,9 +17,11 @@ from sf_client import fetch_app_events
 from event_normalizer import normalize_keycloak_event, normalize_app_event
 from event_id_store import load_event_ids, store_event_id
 from syslog_sender import send_syslog_event
+from config import DEBUG, EVENT_HOURS, KEYCLOAK_DAYS_BACK
 
+log_level = logging.DEBUG if DEBUG else logging.INFO
 logging.basicConfig(
-    level=logging.INFO,
+    level=log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
@@ -64,8 +66,18 @@ def main() -> int:
         logger.info("Получение событий из Keycloak...")
         try:
             token = get_admin_token()
-            kc_user_events = fetch_keycloak_events("events", token)
-            kc_admin_events = fetch_keycloak_events("admin-events", token)
+            kc_user_events = fetch_keycloak_events(
+                "events",
+                token,
+                hours=EVENT_HOURS,
+                fetch_days_back=KEYCLOAK_DAYS_BACK or 1,
+            )
+            kc_admin_events = fetch_keycloak_events(
+                "admin-events",
+                token,
+                hours=EVENT_HOURS,
+                fetch_days_back=KEYCLOAK_DAYS_BACK or 1,
+            )
 
             for e in kc_user_events:
                 try:
@@ -103,7 +115,7 @@ def main() -> int:
 
         logger.info("Получение событий из Scanfactory...")
         try:
-            app_events = fetch_app_events()
+            app_events = fetch_app_events(hours=EVENT_HOURS)
 
             for e in app_events:
                 try:

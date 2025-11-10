@@ -24,3 +24,4 @@ ENV/
 *.log
 
 events.db
+temp/

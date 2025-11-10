@@ -37,53 +37,78 @@ def get_admin_token() -> str:
 
 
 def fetch_keycloak_events(
-    event_type: str, access_token: str, hours: int = 1
+    event_type: str, access_token: str, hours: int = 1, fetch_days_back: int = 1
 ) -> List[Dict[str, Any]]:
     now = datetime.now(tz=UTC)
     since = now - timedelta(hours=hours)
 
-    # по формату киклок поддерживает дни при запросе ивентов
-    yesterday = since - timedelta(days=1)
-    date_from = yesterday.strftime("%Y-%m-%d")
-    date_to = now.strftime("%Y-%m-%d")
+    # Keycloak API позволяет получать события только за сутки (YYYY-MM-DD)
+    date_from = (now - timedelta(days=fetch_days_back)).strftime("%Y-%m-%d")
 
     url = f"{KEYCLOAK_URL}/admin/realms/{KEYCLOAK_ADMIN_REALM}/{event_type}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
         "dateFrom": date_from,
-        "dateTo": date_to,
     }
+
+    logger.debug(f"Запрашиваем {event_type} с {date_from}")
+    logger.debug(f"Полный URL: {url}")
+    logger.debug(f"Параметры запроса: {params}")
+    logger.debug(f"Будут отфильтрованы события начиная с: {since.isoformat()}")
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
         events = response.json()
 
+        logger.debug(f"API вернул {len(events)} событий типа {event_type}")
+        if events and len(events) > 0:
+            logger.debug(f"Пример первого события: {events[0]}")
+
         filtered_events = []
         since_timestamp = since.timestamp()
-        for event in events:
+        logger.debug(
+            f"Фильтруем события новее чем: {since.isoformat()} (timestamp: {since_timestamp})"
+        )
 
+        for i, event in enumerate(events):
             event_time = event.get("time") or event.get("timestamp")
             if event_time:
                 if isinstance(event_time, int):
                     event_timestamp = event_time / 1000
+                    if i == 0:
+                        logger.debug(
+                            f"Временная метка события (мс->с): {event_time} -> {event_timestamp}"
+                        )
                 else:
                     try:
                         event_dt = datetime.fromisoformat(
                             event_time.replace("Z", "+00:00")
                         )
                         event_timestamp = event_dt.timestamp()
-                    except:
+                        if i == 0:
+                            logger.debug(
+                                f"Дата/время события: {event_time} -> {event_timestamp}"
+                            )
+                    except Exception as e:
+                        logger.debug(
+                            f"Не удалось распарсить временную метку '{event_time}': {e}"
+                        )
                         filtered_events.append(event)
                         continue
 
                 if event_timestamp >= since_timestamp:
                     filtered_events.append(event)
+                elif i < 3:
+                    logger.debug(
+                        f"Событие отфильтровано: {event_timestamp} < {since_timestamp}"
+                    )
             else:
+                logger.debug(f"У события нет поля time/timestamp: {event}")
                 filtered_events.append(event)
 
         logger.info(
-            f"Получено {len(filtered_events)}/{len(events)} событий типа {event_type} за последний {hours} час(а)"
+            f"Получено {len(filtered_events)}/{len(events)} (подходящих/всего) событий типа {event_type} за {hours} час(ов)"
         )
         return filtered_events
     except requests.exceptions.RequestException as e:
