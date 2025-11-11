@@ -10,30 +10,35 @@ from config import (
 
 
 def normalize_keycloak_event(
-    event: Dict[str, Any], is_admin: bool = False
+    event: Dict[str, Any], realm: str, is_admin: bool = False
 ) -> Dict[str, Any]:
     event_type = event.get("type") or event.get("operationType") or "unknown"
     timestamp = event.get("time") or event.get("timestamp")
     user_id = event.get("userId")
     realm_id = event.get("realmId")
 
+    normalized_timestamp = _normalize_timestamp(timestamp)
+
     if is_admin:
         resource_path = event.get("resourcePath", "")
         event_id = _generate_event_id(
-            str(event_type or ""), timestamp, str(user_id or ""), resource_path
+            str(event_type or ""),
+            normalized_timestamp,
+            str(user_id or ""),
+            resource_path,
         )
     else:
-
         session_id = event.get("sessionId", "")
         event_id = _generate_event_id(
-            str(event_type or ""), timestamp, str(user_id or ""), session_id
+            str(event_type or ""), normalized_timestamp, str(user_id or ""), session_id
         )
 
     base = {
         "id": event_id,
-        "timestamp": timestamp,
+        "timestamp": normalized_timestamp,
         "user": user_id,
-        "realm": realm_id,
+        "realm_id": realm_id,
+        "realm_name": realm,
         "event_type": event_type,
         "details": event.get("details"),
         "source": "keycloak",
@@ -82,10 +87,7 @@ def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
     event_id = _generate_event_id(event_type, timestamp, user, project.get("id"))
 
     if timestamp:
-        if isinstance(timestamp, str):
-            normalized_timestamp = timestamp
-        else:
-            normalized_timestamp = timestamp.isoformat()
+        normalized_timestamp = _normalize_timestamp(timestamp)
     else:
         normalized_timestamp = datetime.now(timezone.utc).isoformat()
 
@@ -110,6 +112,69 @@ def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
         normalized["details"] = event.get("info", {})
 
     return normalized
+
+
+def _normalize_timestamp(timestamp: Optional[Union[int, float, str]]) -> str:
+    """
+    Универсальная функция преобразования timestamp в ISO 8601 формат.
+
+    Обрабатывает различные форматы:
+    - int/float в миллисекундах (например, 1731254400589)
+    - int/float в секундах (например, 1731254400)
+    - строка с числом в миллисекундах (например, "1731254400589")
+    - строка с числом в секундах (например, "1731254400")
+    - строка в ISO формате (например, "2025-11-10T14:53:01+00:00")
+
+    Args:
+        timestamp: Временная метка в различных форматах
+
+    Returns:
+        ISO 8601 строка
+    """
+    if not timestamp:
+        return datetime.now(timezone.utc).isoformat()
+
+    if isinstance(timestamp, str):
+        try:
+            if "T" in timestamp or "-" in timestamp[:10]:
+                dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                return dt.isoformat()
+        except (ValueError, AttributeError):
+            pass
+
+        try:
+            timestamp_num = float(timestamp)
+            return _convert_numeric_timestamp(timestamp_num)
+        except (ValueError, TypeError):
+            return datetime.now(timezone.utc).isoformat()
+
+    elif isinstance(timestamp, (int, float)):
+        return _convert_numeric_timestamp(timestamp)
+
+    else:
+        return datetime.now(timezone.utc).isoformat()
+
+
+def _convert_numeric_timestamp(timestamp_num: float) -> str:
+    """
+    Преобразует числовой timestamp (в секундах или миллисекундах) в ISO формат.
+
+    Автоматически определяет, в секундах или миллисекундах передан timestamp.
+    если timestamp > 10^10, то это миллисекунды
+
+    Args:
+        timestamp_num: Числовой timestamp
+
+    Returns:
+        ISO 8601 строка
+    """
+
+    if timestamp_num > 100_000_000_000:
+        dt = datetime.fromtimestamp(timestamp_num / 1000, tz=timezone.utc)
+    else:
+        dt = datetime.fromtimestamp(timestamp_num, tz=timezone.utc)
+
+    return dt.isoformat()
 
 
 def _generate_event_id(

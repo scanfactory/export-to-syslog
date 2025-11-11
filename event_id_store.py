@@ -13,7 +13,8 @@ def _get_db_connection() -> sqlite3.Connection:
         os.makedirs(db_dir)
 
     conn = sqlite3.connect(EVENT_ID_FILE)
-    conn.execute("""
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS events (
             id TEXT PRIMARY KEY,
             timestamp TEXT NOT NULL,
@@ -22,9 +23,10 @@ def _get_db_connection() -> sqlite3.Connection:
             user TEXT,
             priority INTEGER,
             facility INTEGER,
-            created_at TEXT NOT NULL
+            created_at INTEGER NOT NULL
         )
-    """)
+    """
+    )
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_timestamp ON events(timestamp)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_source ON events(source)")
@@ -63,20 +65,23 @@ def store_event_id(event_id: str, metadata: Optional[Dict[str, Any]] = None) -> 
         metadata = {}
 
     conn = _get_db_connection()
-    conn.execute("""
+    conn.execute(
+        """
         INSERT OR IGNORE INTO events
         (id, timestamp, event_type, source, user, priority, facility, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        event_id,
-        metadata.get("timestamp", ""),
-        metadata.get("event_type", ""),
-        metadata.get("source", ""),
-        metadata.get("user", ""),
-        metadata.get("priority", 0),
-        metadata.get("facility", 0),
-        datetime.now(timezone.utc).isoformat()
-    ))
+    """,
+        (
+            event_id,
+            metadata.get("timestamp", ""),
+            metadata.get("event_type", ""),
+            metadata.get("source", ""),
+            metadata.get("user", ""),
+            metadata.get("priority", 0),
+            metadata.get("facility", 0),
+            int(datetime.now(timezone.utc).timestamp()),
+        ),
+    )
     conn.commit()
     conn.close()
 
@@ -92,7 +97,8 @@ def cleanup_old_events(days: int = 30) -> int:
         Количество удаленных записей
     """
     from datetime import timedelta
-    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    cutoff_date = int((datetime.now(timezone.utc) - timedelta(days=days)).timestamp())
 
     conn = _get_db_connection()
     cursor = conn.execute("DELETE FROM events WHERE created_at < ?", (cutoff_date,))
@@ -115,7 +121,4 @@ def get_stats() -> Dict[str, Any]:
 
     conn.close()
 
-    return {
-        "total_events": total,
-        "by_source": by_source
-    }
+    return {"total_events": total, "by_source": by_source}

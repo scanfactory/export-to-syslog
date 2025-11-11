@@ -17,7 +17,7 @@ from sf_client import fetch_app_events
 from event_normalizer import normalize_keycloak_event, normalize_app_event
 from event_id_store import load_event_ids, store_event_id
 from syslog_sender import send_syslog_event
-from config import DEBUG, EVENT_HOURS, KEYCLOAK_DAYS_BACK
+from config import DEBUG, EVENT_HOURS, KEYCLOAK_DAYS_BACK, KEYCLOAK_REALM
 
 log_level = logging.DEBUG if DEBUG else logging.INFO
 logging.basicConfig(
@@ -81,7 +81,7 @@ def main() -> int:
 
             for e in kc_user_events:
                 try:
-                    ne = normalize_keycloak_event(e, is_admin=False)
+                    ne = normalize_keycloak_event(e, KEYCLOAK_REALM, is_admin=False)
                     if ne["id"] not in event_ids:
                         normalized_events.append(ne)
                         store_event_id(ne["id"], _extract_metadata(ne))
@@ -94,7 +94,7 @@ def main() -> int:
 
             for e in kc_admin_events:
                 try:
-                    ne = normalize_keycloak_event(e, is_admin=True)
+                    ne = normalize_keycloak_event(e, KEYCLOAK_REALM, is_admin=True)
                     if ne["id"] not in event_ids:
                         normalized_events.append(ne)
                         store_event_id(ne["id"], _extract_metadata(ne))
@@ -152,6 +152,10 @@ def main() -> int:
                     f"Ошибка отправки события {event.get('id', 'unknown')}: {ex}"
                 )
                 stats["errors"] += 1
+
+        logger.info(
+            f"Завершена отправка событий. Отправлено {stats['sent']}/{total_events}"
+        )
 
         elapsed_time = (datetime.now() - start_time).total_seconds()
         total_duplicates = (

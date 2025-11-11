@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Dict, List
 from config import (
     KEYCLOAK_URL,
-    KEYCLOAK_ADMIN_REALM,
+    KEYCLOAK_REALM,
     KEYCLOAK_CLIENT_ID,
+    KEYCLOAK_CLIENT_SECRET,
     KEYCLOAK_USERNAME,
     KEYCLOAK_PASSWORD,
 )
@@ -14,18 +15,22 @@ logger = logging.getLogger(__name__)
 
 
 def get_admin_token() -> str:
-    url = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_ADMIN_REALM}/protocol/openid-connect/token"
+    url = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/token"
     data = {
         "client_id": KEYCLOAK_CLIENT_ID,
         "username": KEYCLOAK_USERNAME,
         "password": KEYCLOAK_PASSWORD,
         "grant_type": "password",
     }
+    if KEYCLOAK_CLIENT_SECRET:
+        data["client_secret"] = KEYCLOAK_CLIENT_SECRET
 
     try:
         response = requests.post(url, data=data, timeout=10)
         response.raise_for_status()
-        return response.json()["access_token"]
+        token = response.json()["access_token"]
+        logger.info("Успешная авторизация в Keycloak")
+        return token
     except requests.exceptions.RequestException as e:
         logger.error(f"Ошибка получения токена Keycloak: {e}")
         if hasattr(e, "response") and e.response is not None:
@@ -45,7 +50,7 @@ def fetch_keycloak_events(
     # Keycloak API позволяет получать события только за сутки (YYYY-MM-DD)
     date_from = (now - timedelta(days=fetch_days_back)).strftime("%Y-%m-%d")
 
-    url = f"{KEYCLOAK_URL}/admin/realms/{KEYCLOAK_ADMIN_REALM}/{event_type}"
+    url = f"{KEYCLOAK_URL}/admin/realms/{KEYCLOAK_REALM}/{event_type}"
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {
         "dateFrom": date_from,

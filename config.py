@@ -3,10 +3,17 @@
 # os.getenv("ENV_VAR_NAME", "default_value")
 
 KEYCLOAK_URL = "https://keycloak.domain"
-KEYCLOAK_ADMIN_REALM = "master"
-KEYCLOAK_CLIENT_ID = "admin-cli"
-KEYCLOAK_USERNAME = "your_admin_user"  # os.getenv("KEYCLOAK_USERNAME", None)
-KEYCLOAK_PASSWORD = "your_admin_password"  # os.getenv("KEYCLOAK_PASSWORD", None)
+
+# realm в котором будут собраны события
+KEYCLOAK_REALM = "example-realm1"
+KEYCLOAK_CLIENT_ID = "client-id-example"
+
+# можно оставить пустым "", если не требуется для аутентификации
+KEYCLOAK_CLIENT_SECRET = ""
+
+KEYCLOAK_USERNAME = "your_username"  # os.getenv("KEYCLOAK_USERNAME", None)
+KEYCLOAK_PASSWORD = "your_password"  # os.getenv("KEYCLOAK_PASSWORD", None)
+
 
 APP_API_URL = "https://sf.app.url/api"
 APP_API_TOKEN = "eyJhbGc..."
