@@ -53,9 +53,13 @@ def normalize_keycloak_event(
     return base
 
 
-def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_app_event(event: Dict[str, Any], app_name: str = "") -> Dict[str, Any]:
     """
     Нормализует события приложения к RFC5424-совместимому формату.
+
+    Args:
+        event: событие из API приложения
+        app_name: имя приложения из конфига APPLICATIONS (второй элемент кортежа в sources)
 
     Входной формат (из API /history/):
     {
@@ -76,7 +80,7 @@ def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
         "event_type": str,  # тип события
         "details": dict,  # дополнительная информация
         "priority": int,  # приоритет по RFC5424
-        "source": "app"  # источник события
+        "source": str  # источник события - имя приложения (app_name)
     }
     """
     event_type = event.get("type", "unknown")
@@ -84,7 +88,9 @@ def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
     timestamp = event.get("at")
     user = event.get("by", "system")
 
-    event_id = _generate_event_id(event_type, timestamp, user, project.get("id"))
+    event_id = _generate_event_id(
+        event_type, timestamp, user, f"{project.get('id')}::{app_name}"
+    )
 
     if timestamp:
         normalized_timestamp = _normalize_timestamp(timestamp)
@@ -105,7 +111,7 @@ def normalize_app_event(event: Dict[str, Any]) -> Dict[str, Any]:
         "details": {},
         "priority": priority_facility[0],
         "facility": priority_facility[1],
-        "source": "app",
+        "source": app_name,
     }
 
     if not SHORT_LOGS:

@@ -2,6 +2,10 @@
 # import os
 # os.getenv("ENV_VAR_NAME", "default_value")
 
+# --------------------------------------------------
+# KEYCLOAK SETTINGS
+
+KEYCLOAK_ENABLED = False
 KEYCLOAK_URL = "https://keycloak.domain"
 
 # realm в котором будут собраны события
@@ -14,14 +18,37 @@ KEYCLOAK_CLIENT_SECRET = ""
 KEYCLOAK_USERNAME = "your_username"  # os.getenv("KEYCLOAK_USERNAME", None)
 KEYCLOAK_PASSWORD = "your_password"  # os.getenv("KEYCLOAK_PASSWORD", None)
 
+# --------------------------------------------------
+# APPLICATION SETTINGS
 
-APP_API_URL = "https://sf.app.url/api"
-APP_API_TOKEN = "eyJhbGc..."
-
-SYSLOG_HOST = "localhost"
-SYSLOG_PORT = 514  # или 6514 с ssl context
+APPLICATIONS = [
+    {
+        "sources": [
+            ## (Ссылка на API приложения, имя приложения)
+            ("https://sf.app.url/api", "appname1"),
+            ("https://2nd.app/api", "appname 2"),
+        ],
+        "api_token": "1eyJhbGc...",
+    },
+    {
+        "sources": [
+            ("https://another.app/api", "appname 33"),
+        ],
+        "api_token": "2eyJhbGc...",
+    },
+]
 
 # --------------------------------------------------
+# SYSLOG SETTINGS
+
+SYSLOG_SERVERS = [
+    {"host": "localhost", "port": 514, "ssl": False},
+    # {"host": "localhost", "port": 6514, "ssl": True},
+]
+
+# --------------------------------------------------
+# ОБЩИЕ НАСТРОЙКИ
+
 # Если True, включает подробное логирование для отладки
 DEBUG = False
 
@@ -45,20 +72,20 @@ EVENT_ID_FILE = "storage/events.db"
 
 # Keycloak User Events: (priority, facility)
 USER_EVENT_PRIORITIES = {
-    "CODE_TO_TOKEN": (14, 4),      # security/authorization
-    "CODE_TO_TOKEN_ERROR": (14, 4),      # security/authorization
-    "LOGIN": (14, 4),            # security/authorization
-    "LOGIN_ERROR": (14, 4),            # security/authorization
-    "LOGOUT": (14, 4),           # security/authorization
-    "LOGOUT_ERROR": (14, 4),           # security/authorization
+    "CODE_TO_TOKEN": (14, 4),  # security/authorization
+    "CODE_TO_TOKEN_ERROR": (14, 4),
+    "LOGIN": (14, 4),
+    "LOGIN_ERROR": (14, 4),
+    "LOGOUT": (14, 4),
+    "LOGOUT_ERROR": (14, 4),
 }
 
 # Keycloak Admin Events: (priority, facility)
 ADMIN_EVENT_PRIORITIES = {
-    "UPDATE": (4, 13),               # audit
+    "UPDATE": (4, 13),  # audit
     "CREATE": (4, 13),
-    "DELETE": (4, 13),               # audit
-    "ACTION": (5, 13),               # audit
+    "DELETE": (4, 13),  # audit
+    "ACTION": (5, 13),  # audit
 }
 
 # События приложения: (priority, facility)
@@ -77,3 +104,55 @@ APP_EVENT_PRIORITIES = {
     "email-tmpl-new": (7, 16),
     "email-tmpl-del": (7, 16),
 }
+
+
+# --------------------------------------------------
+# ВАЛИДАЦИЯ КОНФИГУРАЦИИ
+
+
+def validate_config():
+    """
+    Валидирует конфигурацию на корректность.
+
+    Проверки:
+    - Уникальность имён приложений в APPLICATIONS
+    - Наличие обязательных полей
+    """
+    errors = []
+
+    app_names = []
+    for idx, app in enumerate(APPLICATIONS, 1):
+        sources = app.get("sources", [])
+        if not app.get("api_token", ""):
+            errors.append(f"APPLICATIONS[{idx}]: отсутствует 'api_token'")
+
+        for source_url, app_name in sources:
+            if not app_name or not app_name.strip():
+                errors.append(
+                    f"Источники #{idx}: пустое имя для источника '{source_url}'"
+                )
+            elif app_name in app_names:
+                errors.append(
+                    f"Источники #{idx}: дубликат имени '{app_name}' "
+                    f"(уже используется другим источником)"
+                )
+            else:
+                app_names.append(app_name)
+
+    if not SYSLOG_SERVERS:
+        errors.append("SYSLOG_SERVERS: список серверов пуст")
+
+    for idx, server in enumerate(SYSLOG_SERVERS, 1):
+        if "host" not in server:
+            errors.append(f"SYSLOG_SERVERS[{idx}]: отсутствует поле 'host'")
+        if "port" not in server:
+            errors.append(f"SYSLOG_SERVERS[{idx}]: отсутствует поле 'port'")
+
+    if errors:
+        error_msg = "Ошибки в конфигурации:\n" + "\n".join(
+            f"  - {err}" for err in errors
+        )
+        raise ValueError(error_msg)
+
+
+validate_config()

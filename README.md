@@ -1,32 +1,143 @@
 # Syslog Event Exporter
 
-Экспортер событий из Keycloak и Scanfactory на удаленный syslog сервер в формате RFC5424
+Экспортер событий из Keycloak и множества приложений на удаленные syslog серверы в формате RFC5424
 
 ## Описание
 
-Скрипт собирает события из двух источников:
+Скрипт собирает события из нескольких источников:
 
-1. **Keycloak** - события аутентификации и администрирования
-2. **Scanfactory** - события управления проектами и сканированием
+1. **Keycloak** - события аутентификации и администрирования (опционально)
+2. **Scanfactory** - события из множества Scanfactory приложений через их API
 
-Все события нормализуются к единому формату и отправляются на syslog сервер
+Все события нормализуются к единому формату и отправляются на один или несколько syslog серверов.
 
 ## Установка и настройка
 
-1. Установить зависимости:
+### 1. Установить зависимости
 
-   ```bash
-   pip3 install -r requirements.txt
-   ```
+```bash
+pip3 install -r requirements.txt
+```
 
-2. Настроить параметры в [config.py](config.py):
+### 2. Создать директорию для хранилища
 
-   - URL и credentials для Keycloak
-   - URL и токен для Scanfactory API
-   - Адрес syslog сервера (host/port)
-   - Приоритеты событий (опционально)
+```bash
+mkdir -p storage
+```
 
-3. Создать директорию для хранилища событий
+### 3. Настроить параметры в config.py
+
+Смотрите подробный гайд по настройке ниже.
+
+## Конфигурация
+
+### Keycloak настройки
+
+```python
+KEYCLOAK_ENABLED = False  # Включить/выключить сбор событий из Keycloak
+KEYCLOAK_URL = "https://keycloak.domain"  # URL вашего Keycloak сервера
+KEYCLOAK_REALM = "example-realm1"  # Realm для сбора событий
+KEYCLOAK_CLIENT_ID = "client-id"  # Client ID для аутентификации
+KEYCLOAK_CLIENT_SECRET = ""  # Client secret (оставить пустым если не нужен)
+KEYCLOAK_USERNAME = "username"  # Имя пользователя
+KEYCLOAK_PASSWORD = "password"  # Пароль пользователя
+```
+
+**Параметры:**
+
+- `KEYCLOAK_ENABLED` - установите `True` для включения сбора событий из Keycloak
+- `KEYCLOAK_URL` - полный URL вашего Keycloak сервера без trailing slash
+- `KEYCLOAK_REALM` - название realm'а, из которого будут собираться события
+- `KEYCLOAK_CLIENT_ID` - ID клиента для аутентификации в Keycloak
+- `KEYCLOAK_CLIENT_SECRET` - секрет клиента (может быть пустым для public clients)
+- `KEYCLOAK_USERNAME/PASSWORD` - учетные данные пользователя с правами на чтение событий
+
+### Настройки приложений
+
+```python
+APPLICATIONS = [
+    {
+        "sources": [
+            # (URL API приложения, Имя приложения для логирования)
+            ("https://app1.domain/api", "Production App"),
+            ("https://app2.domain/api", "Staging App"),
+        ],
+        "api_token": "Bearer_token_1",  # Токен для группы приложений
+    },
+    {
+        "sources": [
+            ("https://app3.domain/api", "Analytics Service"),
+        ],
+        "api_token": "Bearer_token_2",  # Отдельный токен для другой группы
+    },
+]
+```
+
+**Структура:**
+
+- `APPLICATIONS` - список групп приложений
+- Каждая группа содержит:
+  - `sources` - список кортежей `(api_url, app_name)`
+    - `api_url` - базовый URL API приложения (к нему добавляется `/history/`)
+    - `app_name` - читаемое имя приложения для идентификации в логах
+  - `api_token` - Bearer токен для аутентификации в API этой группы приложений
+
+**Важно:** Приложения группируются по токену доступа. Если несколько приложений используют один токен (пользователь, которому был выдан токен, имеет доступ к нескольким приложениям), объедините их в одну группу.
+
+### Настройки Syslog серверов
+
+```python
+SYSLOG_SERVERS = [
+    {"host": "syslog1.domain", "port": 514, , "ssl": False},   # TCP соединение
+    {"host": "syslog2.domain", "port": 6514, , "ssl": True},  # TLS соединение
+]
+```
+
+**Параметры:**
+
+- `host` - адрес syslog сервера (IP или домен)
+- `port` - порт сервера:
+  - `514` - стандартный TCP порт для syslog
+  - `6514` - стандартный порт для syslog через TLS
+- `ssl` - использовать ли для подключения к порту SSL контекст. При отсутствии значения содение к порту 6514 будет с SSL
+
+События отправляются на **все** сервера из списка.
+
+### Общие настройки
+
+```python
+DEBUG = False              # Включить подробное логирование
+EVENT_HOURS = 1            # За сколько последних часов собирать события
+KEYCLOAK_DAYS_BACK = 2     # За сколько дней собирать события Keycloak
+SHORT_LOGS = True          # Убирать детальную информацию из событий приложений
+EVENT_ID_FILE = "storage/events.db"  # Путь к БД для дедупликации
+```
+
+**Параметры:**
+
+- `DEBUG` - при `True` выводит детальную информацию о работе экспортера
+- `EVENT_HOURS` - окно времени для сбора новых событий (в часах)
+- `KEYCLOAK_DAYS_BACK` - собирает события за указанное количество дней для киклока
+- `SHORT_LOGS` - при `True` убирает поле `details` из событий для экономии места
+- `EVENT_ID_FILE` - путь к SQLite БД для хранения ID обработанных событий для дедупликации
+
+### Использование переменных окружения
+
+Для безопасности рекомендуется использовать переменные окружения для чувствительных данных:
+
+```python
+import os
+
+KEYCLOAK_USERNAME = os.getenv("KEYCLOAK_USERNAME", "default_user")
+KEYCLOAK_PASSWORD = os.getenv("KEYCLOAK_PASSWORD", "default_pass")
+
+APPLICATIONS = [
+    {
+        "sources": [("https://app/api", "app")],
+        "api_token": os.getenv("APP_API_TOKEN", ""),
+    },
+]
+```
 
 ## Запуск
 
@@ -44,17 +155,17 @@ python3 main.py
 crontab -e
 ```
 
-Добавить строку (например, запуск каждый час):
+Добавить строку для запуска каждый час:
 
 ```bash
 0 * * * * cd /path/to/export-to-syslog && /usr/bin/python3 main.py >> /var/log/syslog-exporter.log 2>&1
 ```
 
-## Events
+## События
 
 ### Формат событий приложения
 
-События приложения получаются через API endpoint `/history/` и имеют следующую структуру:
+События получаются через API endpoint `/history/` и имеют структуру:
 
 ```json
 {
@@ -66,133 +177,12 @@ crontab -e
   "at": "2025-10-14T12:34:56.123456+00:00",
   "type": "project_created",
   "info": {
-    "...": "дополнительная информация о событии"
+    "...": "дополнительная информация"
   }
 }
 ```
 
-### [Другие события Keycloak](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/events/EventType.html)
-
-AUTHREQID_TO_TOKEN  
-AUTHREQID_TO_TOKEN_ERROR  
-CLIENT_DELETE  
-CLIENT_DELETE_ERROR  
-CLIENT_INFO  
-CLIENT_INFO_ERROR  
-CLIENT_INITIATED_ACCOUNT_LINKING  
-CLIENT_INITIATED_ACCOUNT_LINKING_ERROR  
-CLIENT_LOGIN  
-CLIENT_LOGIN_ERROR  
-CLIENT_REGISTER  
-CLIENT_REGISTER_ERROR  
-CLIENT_UPDATE  
-CLIENT_UPDATE_ERROR  
-CODE_TO_TOKEN  
-CODE_TO_TOKEN_ERROR  
-CUSTOM_REQUIRED_ACTION  
-CUSTOM_REQUIRED_ACTION_ERROR  
-DELETE_ACCOUNT  
-DELETE_ACCOUNT_ERROR  
-EXECUTE_ACTION_TOKEN  
-EXECUTE_ACTION_TOKEN_ERROR  
-EXECUTE_ACTIONS  
-EXECUTE_ACTIONS_ERROR  
-FEDERATED_IDENTITY_LINK  
-FEDERATED_IDENTITY_LINK_ERROR  
-FEDERATED_IDENTITY_OVERRIDE_LINK  
-FEDERATED_IDENTITY_OVERRIDE_LINK_ERROR  
-GRANT_CONSENT  
-GRANT_CONSENT_ERROR  
-IDENTITY_PROVIDER_FIRST_LOGIN  
-IDENTITY_PROVIDER_FIRST_LOGIN_ERROR  
-IDENTITY_PROVIDER_LINK_ACCOUNT  
-IDENTITY_PROVIDER_LINK_ACCOUNT_ERROR  
-IDENTITY_PROVIDER_LOGIN  
-IDENTITY_PROVIDER_LOGIN_ERROR  
-IDENTITY_PROVIDER_POST_LOGIN  
-IDENTITY_PROVIDER_POST_LOGIN_ERROR  
-IDENTITY_PROVIDER_RESPONSE  
-IDENTITY_PROVIDER_RESPONSE_ERROR  
-IDENTITY_PROVIDER_RETRIEVE_TOKEN  
-IDENTITY_PROVIDER_RETRIEVE_TOKEN_ERROR  
-IMPERSONATE  
-IMPERSONATE_ERROR  
-INTROSPECT_TOKEN  
-INTROSPECT_TOKEN_ERROR  
-INVALID_SIGNATURE  
-INVALID_SIGNATURE_ERROR  
-INVITE_ORG  
-INVITE_ORG_ERROR  
-LOGIN  
-LOGIN_ERROR  
-LOGOUT  
-LOGOUT_ERROR  
-OAUTH2_DEVICE_AUTH  
-OAUTH2_DEVICE_AUTH_ERROR  
-OAUTH2_DEVICE_CODE_TO_TOKEN  
-OAUTH2_DEVICE_CODE_TO_TOKEN_ERROR  
-OAUTH2_DEVICE_VERIFY_USER_CODE  
-OAUTH2_DEVICE_VERIFY_USER_CODE_ERROR  
-OAUTH2_EXTENSION_GRANT  
-OAUTH2_EXTENSION_GRANT_ERROR  
-PERMISSION_TOKEN  
-PERMISSION_TOKEN_ERROR  
-PUSHED_AUTHORIZATION_REQUEST  
-PUSHED_AUTHORIZATION_REQUEST_ERROR  
-REFRESH_TOKEN  
-REFRESH_TOKEN_ERROR  
-REGISTER  
-REGISTER_ERROR  
-REGISTER_NODE  
-REGISTER_NODE_ERROR  
-REMOVE_CREDENTIAL  
-REMOVE_CREDENTIAL_ERROR  
-REMOVE_FEDERATED_IDENTITY  
-REMOVE_FEDERATED_IDENTITY_ERROR  
-REMOVE_TOTP Deprecated.  
-REMOVE_TOTP_ERROR Deprecated.  
-RESET_PASSWORD  
-RESET_PASSWORD_ERROR  
-RESTART_AUTHENTICATION  
-RESTART_AUTHENTICATION_ERROR  
-REVOKE_GRANT  
-REVOKE_GRANT_ERROR  
-SEND_IDENTITY_PROVIDER_LINK  
-SEND_IDENTITY_PROVIDER_LINK_ERROR  
-SEND_RESET_PASSWORD  
-SEND_RESET_PASSWORD_ERROR  
-SEND_VERIFY_EMAIL  
-SEND_VERIFY_EMAIL_ERROR  
-TOKEN_EXCHANGE  
-TOKEN_EXCHANGE_ERROR  
-UNREGISTER_NODE  
-UNREGISTER_NODE_ERROR  
-UPDATE_CONSENT  
-UPDATE_CONSENT_ERROR  
-UPDATE_CREDENTIAL  
-UPDATE_CREDENTIAL_ERROR  
-UPDATE_EMAIL  
-UPDATE_EMAIL_ERROR  
-UPDATE_PASSWORD Deprecated.  
-UPDATE_PASSWORD_ERROR Deprecated.  
-UPDATE_PROFILE  
-UPDATE_PROFILE_ERROR  
-UPDATE_TOTP Deprecated.  
-UPDATE_TOTP_ERROR Deprecated.  
-USER_DISABLED_BY_PERMANENT_LOCKOUT  
-USER_DISABLED_BY_PERMANENT_LOCKOUT_ERROR  
-USER_DISABLED_BY_TEMPORARY_LOCKOUT  
-USER_DISABLED_BY_TEMPORARY_LOCKOUT_ERROR  
-USER_INFO_REQUEST  
-USER_INFO_REQUEST_ERROR  
-VALIDATE_ACCESS_TOKEN Deprecated. see KEYCLOAK-2266  
-VALIDATE_ACCESS_TOKEN_ERROR Deprecated.  
-VERIFY_EMAIL  
-VERIFY_EMAIL_ERROR  
-VERIFY_PROFILE  
-VERIFY_PROFILE_ERROR  
-
-## Формат [RFC5424](https://www.rfc-editor.org/rfc/rfc5424)
+## Формат RFC5424
 
 Сообщения отправляются в формате RFC5424:
 
@@ -200,8 +190,8 @@ VERIFY_PROFILE_ERROR
 
 Пример:
 
-```json
-<134>1 2025-10-14T12:34:56.123456+00:00 audit-client factory-app - project_created - ﻿{"id":"abc123","timestamp":"2025-10-14T12:34:56.123456+00:00","user":"admin","project_id":"uuid","project_name":"Test Project","event_type":"project_created","details":{},"priority":6,"source":"app"}
+```
+<134>1 2025-10-14T12:34:56.123456+00:00 audit-client app-name - project_created - ﻿{"id":"abc123","timestamp":"2025-10-14T12:34:56+00:00","user":"admin","source":"app-name","event_type":"project_created",...}
 ```
 
 Где:
@@ -210,7 +200,7 @@ VERIFY_PROFILE_ERROR
 - `1` = VERSION
 - `2025-10-14T12:34:56.123456+00:00` = TIMESTAMP
 - `audit-client` = HOSTNAME
-- `factory-app` = APP-NAME
+- `app-name` = APP-NAME (определяется по источнику)
 - `-` = PROCID (не используется)
 - `project_created` = MSGID (тип события)
 - `-` = STRUCTURED-DATA (не используется)
@@ -245,3 +235,9 @@ print(f"Удалено {deleted} старых событий")
 ```bash
 0 0 * * 0 cd /path/to/export-to-syslog && /usr/bin/python3 -c "from event_id_store import cleanup_old_events; cleanup_old_events(30)" 2>&1
 ```
+
+## Поддерживаемые события Keycloak
+
+Скрипт обрабатывает все типы событий Keycloak, включая описанные события в концигурации с установленными приоритетами и facility.
+
+Полный список событий доступен в [документации Keycloak](https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/events/EventType.html).

@@ -14,7 +14,7 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
-def get_admin_token() -> str:
+def get_kc_token() -> str:
     url = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/token"
     data = {
         "client_id": KEYCLOAK_CLIENT_ID,
